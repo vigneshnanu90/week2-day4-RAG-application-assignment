@@ -1,87 +1,99 @@
-# 🧭 Northstar Labs — Maya (People & Workplace AI Partner)
+# 📚 Multi-PDF RAG App with Sources (`rag_app.py`)
 
-An enterprise-grade, human-centric **Multi-PDF Retrieval-Augmented Generation (RAG)** application built with **Python**, **LangChain**, **FAISS**, **OpenAI**, and **Streamlit**.
+A single-file **Multi-PDF Retrieval-Augmented Generation (RAG)** application built with **Python**, **LangChain**, **FAISS**, **OpenAI**, **Streamlit**, and an embedded **React 18 Chatbox UI**.
 
-Designed for **Northstar Labs**, this portal pairs employees with **Maya**, an AI People & Workplace Partner who answers questions across company policies in a warm, natural, colleague-like voice—while handling all PDF ingestion, text sanitization, chunking, and vector indexing silently in the backend.
+Users can upload an entire folder's worth of PDF documents in a single batch, index all chunks into a unified **FAISS** vector database (`st.session_state.store`), ask questions across every uploaded document, verify exact **file name and page number** sources (`Sources: file.pdf - page X`), and maintain full session state even when the browser page is refreshed (`F5`).
 
-## ✨ Key Capabilities
+## ✨ Features & Assignment Requirements Covered
 
-* **Silent Backend Multi-PDF RAG Pipeline:** Automatically discovers, loads, sanitizes, chunks, and embeds multiple company policy PDFs into a unified **FAISS** vector index stored in `st.session_state`—with zero manual file-upload clutter exposed in the UI.
-* **Human-Like Conversational Persona (Maya):** Powered by `gpt-4o-mini` and multi-turn `MessagesPlaceholder` conversation memory, Maya responds like an experienced workplace teammate rather than a scripted bot—answering policy questions accurately while handling greetings, follow-ups, and casual banter (like sports scores or small talk) with natural warmth.
-* **Clean, Citation-Free User Experience:** All internal policy rules are synthesized seamlessly into natural conversation without exposing raw PDF filenames, chunk boundaries, or robotic page-number tags in the chat UI.
-* **Automatic Policy Sanitization & Self-Healing Bootstrap:** Strips legacy boilerplate strings during ingestion and automatically provisions the three official Northstar Labs policy PDFs in `./policies/` if launched in a fresh directory.
-* **Interactive Self-Service Calculators:**
-  * **Annual Leave & Carryover Planner:** Calculates prorated 2026 annual leave (rounded up to the next half-day for new joiners) and tracks the 5-day carryover cap expiring on March 31.
-  * **Quick Expense Eligibility Checker:** Validates overnight business travel meals ($60/day cap), home-office equipment upgrades ($250 every two years), economy flight rules, and the 30-day itemized receipt window.
-* **Executive Portal UI:** Custom CSS hero banner, at-a-glance policy KPI cards, topic focus filter pills, one-click conversation starters, and conversation transcript export.
+* **Single-File Architecture (`rag_app.py`):** All backend RAG pipelines, state persistence logic, and the embedded React 18 Chatbox interface reside in one file launched via `streamlit run rag_app.py`.
+* **Batch Multi-PDF Upload:** Uses `st.file_uploader(..., type="pdf", accept_multiple_files=True)` so users can upload multiple PDFs at once rather than one at a time.
+* **Unified FAISS Vector Database:** Extracts pages via `PyPDFLoader` (converting 0-indexed page metadata to human-readable 1-based page numbers), splits text with `RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=150)`, and embeds all chunks into a single `FAISS` vector store using `OpenAIEmbeddings("text-embedding-3-small")`.
+* **Indexed Chunk Reporting:** Immediately reports all uploaded filenames and the exact total number of indexed chunks (`Uploaded: ... | Indexed N chunks.`) upon completion.
+* **Source & Page Citations on Every Answer:** Retrieves context across all uploaded PDFs using Maximal Marginal Relevance (`MMR`) and displays deduplicated file and page citations underneath every answer (`Sources: policy.pdf - page 1 | handbook.pdf - page 2`) with expandable page excerpts.
+* **Cross-Document Disagreement Detection ("These Two Disagree"):** When multiple uploaded PDFs contain conflicting figures, rules, or claims, the assistant explicitly contrasts both positions side by side with their respective `[File Name - page X]` citations rather than silently picking one.
+* **Persistent `st.session_state` Across Browser Refreshes (`F5`):** Combines a `@st.cache_resource` server-memory vault with local disk snapshots (`.faiss_session_cache/faiss_index` and `session_state.json`) plus React `localStorage` backup so refreshing the browser page never loses the indexed FAISS store, chunk count, or chat history.
+* **Environment-Based API Key Security:** Reads `OPENAI_API_KEY` automatically from environment variables or a local `.env` file via `python-dotenv`.
 
-## 📂 Covered Company Policies
+## 🧠 Design Decisions ("Think It Through")
 
-| Policy Document | Core Workplace Provisions |
+| Design Question | How `rag_app.py` Solves It |
 | :--- | :--- |
-| **People & Leave Policy** (`01_People_and_Leave_Policy.pdf`) | 18 paid annual leave days/year (prorated for new joiners, rounded up to the next 0.5 day); 5-day carryover limit expiring March 31; 10 paid sick days/year (medical certificate after 3 consecutive working days); 16 weeks primary / 6 weeks secondary paid parental leave. |
-| **Hybrid Work & Equipment Policy** (`02_Hybrid_Work_and_Equipment.pdf`) | Hybrid schedule with Tuesday & Wednesday in-office; core collaboration hours from 11:00 a.m. to 3:00 p.m. local time (Mon–Fri); written People Operations approval required before working from another country; $250 home-office equipment allowance once every 2 years. |
-| **Expenses & Travel Policy** (`03_Expenses_and_Travel_Policy.pdf`) | Itemized receipt and business purpose required within 30 days of purchase; manager pre-approval and economy class for flights; up to $60/day for overnight travel meals (including tax and tip); alcohol, personal items, fines, and daily office commuting are non-reimbursable. |
+| **1. What happens when two uploaded PDFs disagree?** | Standard top-k similarity search often pulls redundant chunks from a single verbose PDF. `rag_app.py` uses **Maximal Marginal Relevance (`search_type="mmr"`, `k=4`, `fetch_k=16`)** to diversify retrieval across different files, paired with a conflict-aware system prompt that instructs `gpt-4o-mini` to explicitly report when two documents disagree and cite each file and page number. |
+| **2. If an answer cites 5 different pages, is chunk size doing its job?** | Citing 5+ pages for a single focused question indicates either overly small chunks (fragmenting a single thought) or an excessive `k` value. `rag_app.py` uses a balanced `chunk_size=900` (`chunk_overlap=150`, `k=4`) and deduplicates `(source, page)` metadata pairs so answers cite only the 1–2 exact pages that contain the facts. |
 
 ## 🛠️ Tech Stack
 
-| Component | Technology |
+| Layer | Technology |
 | :--- | :--- |
-| **Frontend & UI** | Streamlit (Custom Enterprise CSS, Tabs, Segmented Controls, Chat UI) |
-| **Orchestration** | LangChain (`langchain-core`, `langchain-community`, `langchain-text-splitters`) |
-| **Vector Database** | FAISS (`faiss-cpu`) stored in `st.session_state` |
+| **Chatbox Frontend** | React 18 (`react`, `react-dom`, JSX via Babel) embedded in Streamlit |
+| **App Framework** | Streamlit (`st.session_state`, `@st.cache_resource`) |
+| **RAG Orchestration** | LangChain (`langchain-core`, `langchain-community`, `langchain-text-splitters`) |
+| **Vector Store** | FAISS (`faiss-cpu`) with local disk & session persistence |
 | **Embeddings & LLM** | OpenAI `text-embedding-3-small` & `gpt-4o-mini` (`langchain-openai`) |
-| **Document Parsing** | `pypdf` (`PyPDFLoader`) |
-| **Environment Config** | `python-dotenv` (`.env` / `OPENAI_API_KEY`) |
+| **PDF Loader** | `PyPDFLoader` (`pypdf`) |
 
 ## 📁 Project Structure
 
 ```text
-northstar-workplace-partner/
-├── policies/
-│   ├── 01_People_and_Leave_Policy.pdf
-│   ├── 02_Hybrid_Work_and_Equipment.pdf
-│   └── 03_Expenses_and_Travel_Policy.pdf
-├── rag_app.py
-├── .env
-└── README.md
+multi-rag/
+├── rag_app.py                 # Single-file Streamlit + React 18 + LangChain + FAISS app
+├── .env                       # Local environment file storing OPENAI_API_KEY
+├── .faiss_session_cache/      # Auto-generated local persistence cache for browser refreshes
+└── README.md                  # Project documentation
 ```
 
-## 🚀 Local Setup & Execution (Windows `cmd` & VS Code)
+## 🚀 Local Setup & Execution (Windows `cmd` / macOS / Linux)
 
 ### 1. Create and Activate a Virtual Environment
 
-Open Command Prompt (`cmd`) in your project directory and run:
+**Windows (Command Prompt `cmd`):**
 
 ```cmd
+mkdir multi-rag && cd multi-rag
 python -m venv venv
 venv\Scripts\activate
 ```
 
-### 2. Install Required Dependencies
+**macOS / Linux:**
+
+```bash
+mkdir multi-rag && cd multi-rag
+python3 -m venv venv && source venv/bin/activate
+```
+
+### 2. Install Dependencies
 
 ```cmd
-pip install streamlit langchain langchain-community langchain-core langchain-openai langchain-text-splitters faiss-cpu pypdf python-dotenv
+pip install streamlit langchain langchain-openai langchain-community langchain-core langchain-text-splitters pypdf faiss-cpu python-dotenv
 ```
 
-### 3. Configure Your OpenAI API Key
+### 3. Set Your OpenAI API Key
 
-Create a `.env` file in the root folder of the project:
+Create a `.env` file in the project folder:
 
 ```env
-OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_API_KEY=your-openai-api-key-here
 ```
 
-*(Alternatively, set it directly in Command Prompt via `set OPENAI_API_KEY=your_openai_api_key_here`.)*
+Or export it directly in your terminal:
 
-### 4. Place Policy PDFs (Optional Auto-Bootstrap)
+* **Windows (`cmd`):** `set OPENAI_API_KEY=your-openai-api-key-here`
+* **macOS / Linux:** `export OPENAI_API_KEY="your-openai-api-key-here"`
 
-Place `01_People_and_Leave_Policy.pdf`, `02_Hybrid_Work_and_Equipment.pdf`, and `03_Expenses_and_Travel_Policy.pdf` in either the project root or a `./policies` subfolder. If the files are not present on first run, `rag_app.py` automatically generates them inside `./policies/`.
-
-### 5. Run the Application
+### 4. Run the Application
 
 ```cmd
 streamlit run rag_app.py
 ```
 
-The app will open automatically in your browser at `http://localhost:8501`.
+## 🖥️ Example Output
+
+```text
+Uploaded: 01_People_and_Leave_Policy.pdf, 02_Hybrid_Work_and_Equipment.pdf, 03_Expenses_and_Travel_Policy.pdf
+Indexed 12 chunks.
+
+Q: How many annual leave days do full-time employees get, and what is the home-office equipment allowance?
+A: Full-time employees receive 18 paid annual leave days per calendar year (prorated for new joiners and rounded up to the next half day), with up to 5 unused days carrying over until March 31. For home-office equipment, employees may claim up to $250 once every two years by submitting an itemized receipt within 30 days with manager approval.
+   Sources: 01_People_and_Leave_Policy.pdf - page 1 | 02_Hybrid_Work_and_Equipment.pdf - page 2 | 03_Expenses_and_Travel_Policy.pdf - page 2
+```
