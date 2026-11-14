@@ -1,1 +1,4 @@
 .env
+.faiss_session_cache/session_state.json
+.faiss_session_cache/faiss_index/index.faiss
+.faiss_session_cache/faiss_index/index.pkl
